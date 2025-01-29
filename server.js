@@ -14,14 +14,30 @@ app.get("/api/fetch-transcript", async (req, res) => {
     const { videoId } = req.query;
     if (!videoId) return res.status(400).json({ error: "Missing videoId" });
 
-    const filePath = path.join(TEMP_DIR, `${videoId}.en.vtt`);
+    console.log(`Fetching transcript for video: ${videoId}`);
 
     async function runYtDlp(command) {
         return new Promise((resolve, reject) => {
+            console.log(`Running command: ${command}`);
+
             exec(command, { cwd: TEMP_DIR }, (error, stdout, stderr) => {
-                if (error) return reject(stderr);
-                if (fs.existsSync(filePath)) return resolve(fs.readFileSync(filePath, "utf-8"));
-                reject("No subtitles found");
+                console.log("yt-dlp output:", stdout);
+                console.log("yt-dlp errors:", stderr);
+
+                // List all files in TEMP_DIR to see if VTT exists
+                console.log("Checking for VTT files in:", TEMP_DIR);
+                const files = fs.readdirSync(TEMP_DIR);
+                files.forEach(file => console.log("Found file:", file));
+
+                // Find the first .vtt file
+                const vttFile = files.find(f => f.endsWith(".vtt"));
+                if (!vttFile) {
+                    console.log("No VTT file found");
+                    return reject("No subtitles found");
+                }
+
+                console.log("Using VTT file:", vttFile);
+                resolve(fs.readFileSync(path.join(TEMP_DIR, vttFile), "utf-8"));
             });
         });
     }
@@ -31,11 +47,12 @@ app.get("/api/fetch-transcript", async (req, res) => {
         let vttContent = await runYtDlp(`yt-dlp --write-subs --sub-lang en --sub-format vtt --skip-download "https://www.youtube.com/watch?v=${videoId}"`);
         res.status(200).json({ transcript: parseVTT(vttContent) });
     } catch (manualError) {
-        // If manual fails, try auto-generated subtitles
+        console.log("Manual subtitles not found, trying auto-generated subtitles...");
         try {
             let vttContent = await runYtDlp(`yt-dlp --write-auto-sub --sub-lang en --sub-format vtt --skip-download "https://www.youtube.com/watch?v=${videoId}"`);
             res.status(200).json({ transcript: parseVTT(vttContent) });
         } catch (autoError) {
+            console.log("Auto-generated subtitles also not found.");
             res.status(404).json({ error: "No subtitles available" });
         }
     }
